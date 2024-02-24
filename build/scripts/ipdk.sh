@@ -246,6 +246,15 @@ start_container() {
 		RUN_COMMAND+=("--rcfile" "/root/scripts/start.sh")
 	fi
 
+	case $NETWORK_TYPE in
+	    bridge)
+		NETWORK_OPTS="-p 9339:9339 -p 9559:9559"
+		;;
+	    host)
+		NETWORK_OPTS="--network=host"
+		;;
+	esac
+
 	local RUNCMD=()
 	if check_buildx && [ "$PLATFORM" != "" ]; then
 		echo "Using docker run --platform"
@@ -263,18 +272,19 @@ start_container() {
 		ARGS+=("--ulimit" "memlock=$(( 131072*1024 )):$(( 131072*1024 ))")
 	fi
 
+	set -x
 	docker "${RUNCMD[@]}" \
 		--name "${CONTAINER_NAME}" \
 		--rm \
 		--privileged \
 		-v "${VOLUME}":/tmp \
-		-p 9339:9339 \
-		-p 9559:9559 \
+		${NETWORK_OPTS} \
 		--pids-limit="${PIDS_LIMIT}" \
 		--cpu-shares="${CPU_SHARES}" \
 		--memory="${MEMORY}" \
 		--security-opt="${SECURITY_OPT_NO_NEW_PRIV}" \
 		"${ARGS[@]}" -it "${IMAGE_NAME}":"${TAG}" "${RUN_COMMAND[@]}"
+	set +x
 
 	if [ "$LINK_NAMESPACE" ] ; then
 		IPDK_NAMESPACE=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME")
@@ -491,6 +501,7 @@ status() {
 
 	echo "start arguments:"
 	echo "AS_DAEMON=$AS_DAEMON"
+	echo "NETWORK_TYPE=$NETWORK_TYPE"
 	echo "CONTAINER_NAME=$CONTAINER_NAME"
 	echo "VOLUME=$VOLUME"
 	echo ""
@@ -541,6 +552,10 @@ help() {
 		   start
 		     run networking-recipe processes in a long running IPDK docker container
 		       -d - run as daemon
+		       --host-network - container uses host OS network.
+                         Without this option, the default is to have a
+			 separate network inside the running container, with
+			 a bridge to the host network.
 		       -v/--volume - run with given volume path connected to /tmp
 		       --name <container_name> 
 		         the name to run the IPDK container with
@@ -608,6 +623,7 @@ initialize
 # process the command line
 COMMANDS=()
 OPTION_POSITION=1
+NETWORK_TYPE="bridge"
 while (( "$#" )); do
 	case "$1" in
 		-e|--env)
@@ -708,6 +724,10 @@ while (( "$#" )); do
 			;;
 		-d)
 			AS_DAEMON=true
+			shift
+			;;
+		--host-network)
+			NETWORK_TYPE="host"
 			shift
 			;;
 		-v|--volume)
